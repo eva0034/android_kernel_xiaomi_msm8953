@@ -69,6 +69,8 @@
 
 		qcom,initial-pwrlevel = <0x7>;
 
+		/* Disable wake-on-touch */
+		qcom,disable-wake-on-touch;
 
 		qcom,idle-timeout = <80>; //msecs
 		qcom,deep-nap-timeout = <100>; //msecs
