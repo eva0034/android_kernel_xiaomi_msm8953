@@ -261,6 +261,12 @@
 	};
 };
 
+&i2c_2_sleep {
+	mux {
+		pins = "gpio35";
+	};
+};
+
 &pri_tlmm_lines_act {
 	mux {
 		pins = "gpio91", "gpio93", "gpio88", "gpio94", "gpio95";
