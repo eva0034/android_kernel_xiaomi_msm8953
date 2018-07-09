@@ -92,7 +92,8 @@ menu "DOS/FAT/NT Filesystems"
 
 source "fs/fat/Kconfig"
 source "fs/ntfs/Kconfig"
-source "fs/exfat/Kconfig"
+source "fs/sdfat/Kconfig"
+
 endmenu
 endif # BLOCK
 
@@ -279,10 +280,3 @@ config FILE_TABLE_DEBUG
 	  This option enables debug of the open files using a global filetable
 
 endmenu
-
-config DYNAMIC_FSYNC
-	bool "dynamic file sync control"
-        default n
-	help
-	An experimental file sync control using Android's power suspend / late resume drivers
-

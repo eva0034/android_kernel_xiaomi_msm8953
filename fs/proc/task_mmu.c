@@ -312,8 +312,6 @@ static int is_stack(struct proc_maps_private *priv,
 }
 
 static void
-
-
 show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 {
 	struct mm_struct *mm = vma->vm_mm;
@@ -377,8 +375,15 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 			goto done;
 		}
 
-		if (is_stack(priv, vma))
+		if (is_stack(priv, vma)) {
 			name = "[stack]";
+			goto done;
+		}
+
+		if (vma_get_anon_name(vma)) {
+			seq_pad(m, ' ');
+			seq_print_vma_name(m, vma);
+		}
 	}
 
 done:
@@ -388,7 +393,6 @@ done:
 	}
 	seq_putc(m, '\n');
 }
-
 
 static int show_map(struct seq_file *m, void *v, int is_pid)
 {
