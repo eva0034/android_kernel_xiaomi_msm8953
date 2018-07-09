@@ -109,6 +109,33 @@ struct cpufreq_policy {
 	 */
 	struct rw_semaphore	rwsem;
 
+
+	/*
+	 * Fast switch flags:
+	 * - fast_switch_possible should be set by the driver if it can
+	 *   guarantee that frequency can be changed on any CPU sharing the
+	 *   policy and that the change will affect all of the policy CPUs then.
+	 * - fast_switch_enabled is to be set by governors that support fast
+	 *   freqnency switching with the help of cpufreq_enable_fast_switch().
+	 */
+	bool                    fast_switch_possible;
+	bool                    fast_switch_enabled;
+
+	/*
+	 * Preferred average time interval between consecutive invocations of
+	 * the driver to set the frequency for this policy.  To be set by the
+	 * scaling driver (0, which is the default, means no preference).
+	 */
+	unsigned int		up_transition_delay_us;
+	unsigned int		down_transition_delay_us;
+
+	/* Boost switch for tasks with p->in_iowait set */
+	bool iowait_boost_enable;
+
+	 /* Cached frequency lookup from cpufreq_driver_resolve_freq. */
+	unsigned int cached_target_freq;
+	int cached_resolved_idx;
+
 	/* Synchronization for frequency transitions */
 	bool			transition_ongoing; /* Tracks transition status */
 	spinlock_t		transition_lock;
@@ -154,10 +181,11 @@ unsigned int cpufreq_quick_get(unsigned int cpu);
 unsigned int cpufreq_quick_get_max(unsigned int cpu);
 void disable_cpufreq(void);
 
-//u64 get_cpu_idle_time(unsigned int cpu, u64 *wall, int io_busy);
+u64 get_cpu_idle_time(unsigned int cpu, u64 *wall, int io_busy);
 int cpufreq_get_policy(struct cpufreq_policy *policy, unsigned int cpu);
 int cpufreq_update_policy(unsigned int cpu);
 bool have_governor_per_policy(void);
+bool cpufreq_driver_is_slow(void);
 struct kobject *get_governor_parent_kobj(struct cpufreq_policy *policy);
 #else
 static inline unsigned int cpufreq_get(unsigned int cpu)
@@ -264,7 +292,7 @@ struct cpufreq_driver {
 
 	/* optional */
 	int		(*bios_limit)(int cpu, unsigned int *limit);
-unsigned int (*getavg) (struct cpufreq_policy *policy, unsigned int cpu);
+
 	int		(*exit)(struct cpufreq_policy *policy);
 	void		(*stop_cpu)(struct cpufreq_policy *policy);
 	int		(*suspend)(struct cpufreq_policy *policy);
@@ -315,13 +343,19 @@ unsigned int (*getavg) (struct cpufreq_policy *policy, unsigned int cpu);
  */
 #define CPUFREQ_NEED_INITIAL_FREQ_CHECK	(1 << 5)
 
+/*
+ * Indicates that it is safe to call cpufreq_driver_target from
+ * non-interruptable context in scheduler hot paths.  Drivers must
+ * opt-in to this flag, as the safe default is that they might sleep
+ * or be too slow for hot path use.
+ */
+#define CPUFREQ_DRIVER_FAST		(1 << 6)
+
 int cpufreq_register_driver(struct cpufreq_driver *driver_data);
 int cpufreq_unregister_driver(struct cpufreq_driver *driver_data);
 
 const char *cpufreq_get_current_driver(void);
 void *cpufreq_get_driver_data(void);
-
-void cpufreq_notify_utilization(struct cpufreq_policy *policy, unsigned int load);
 
 static inline void cpufreq_verify_within_limits(struct cpufreq_policy *policy,
 		unsigned int min, unsigned int max)
@@ -478,12 +512,10 @@ int cpufreq_driver_target(struct cpufreq_policy *policy,
 int __cpufreq_driver_target(struct cpufreq_policy *policy,
 				   unsigned int target_freq,
 				   unsigned int relation);
-extern int __cpufreq_driver_getavg(struct cpufreq_policy *policy, unsigned int cpu);
+unsigned int cpufreq_driver_resolve_freq(struct cpufreq_policy *policy,
+					 unsigned int target_freq);
 int cpufreq_register_governor(struct cpufreq_governor *governor);
 void cpufreq_unregister_governor(struct cpufreq_governor *governor);
-
-int  proc_time_in_state_show(struct seq_file *m, struct pid_namespace *ns,
-struct pid *pid, struct task_struct *p);
 
 /* CPUFREQ DEFAULT GOVERNOR */
 /*
@@ -510,97 +542,44 @@ extern struct cpufreq_governor cpufreq_gov_conservative;
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE)
 extern struct cpufreq_governor cpufreq_gov_interactive;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_interactive)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTELLIDEMAND)
-extern struct cpufreq_governor cpufreq_gov_intellidemand;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_intellidemand)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE_PRO)
-extern struct cpufreq_governor cpufreq_gov_interactive_pro;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_interactive_pro)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ZZMOOVE)
-extern struct cpufreq_governor cpufreq_gov_zzmoove;
-#define CPUFREQ_DEFAULT_GOVERNOR (&cpufreq_gov_zzmoove)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_BARRY_ALLEN)
-extern struct cpufreq_governor cpufreq_gov_barry_allen;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_barry_allen)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_HYPER)
-extern struct cpufreq_governor cpufreq_gov_hyper;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_hyper)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_WAVE)
-extern struct cpufreq_governor cpufreq_gov_wave;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_wave)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_DARKNESS)
-extern struct cpufreq_governor cpufreq_gov_darkness;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_darkness)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_DARKNESSV5)
-extern struct cpufreq_governor cpufreq_gov_darknessv5;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_darknessv5)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ALUCARD)
-extern struct cpufreq_governor cpufreq_gov_alucard;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_alucard)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_NIGHTMARE)
-extern struct cpufreq_governor cpufreq_gov_nightmare;
-#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_nightmare)
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_BIOSHOCK)
-extern struct cpufreq_governor cpufreq_gov_bioshock;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_bioshock)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_BLU_ACTIVE)
-extern struct cpufreq_governor cpufreq_gov_blue_active;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_blue_active)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_CONSERVATIVEX)
-extern struct cpufreq_governor cpufreq_gov_conservativex;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_conservativex)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ELECTRODEMAND)
-extern struct cpufreq_governor cpufreq_gov_electrodemand;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_electrodemand)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_DANCEDANCE)
-extern struct cpufreq_governor cpufreq_gov_dancedance;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_dancedance)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_IMPULSE)
-extern struct cpufreq_governor cpufreq_gov_impulse;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_impulse)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTELLIACTIVE)
-extern struct cpufreq_governor cpufreq_gov_intelliactive;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_ntelliactive)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVEX)
-extern struct cpufreq_governor cpufreq_gov_interactivex;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_interactivex)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_LIONFISH)
-extern struct cpufreq_governor cpufreq_gov_lionfish;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_lionfish)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_LIONHEART)
-extern struct cpufreq_governor cpufreq_gov_lionheart;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_lionheart)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMANDPLUS)
-extern struct cpufreq_governor cpufreq_gov_ondemandplus;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_ondemandplus)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_PEGASUSQ)
-extern struct cpufreq_governor cpufreq_gov_pegasusq;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_pegasusq)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_SMARTMAX)
-extern struct cpufreq_governor cpufreq_gov_smartmax;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_smartmax)
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_YANKACTIVE)
-extern struct cpufreq_governor cpufreq_gov_yankactive;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_yankactive)
-
-
-#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ELECTRON_ADVANCE)
-extern struct cpufreq_governor cpufreq_gov_electron_advance;
-#define CPUFREQ_DEFAULT_GOVERNOR        (&cpufreq_gov_electron_advance)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_SCHED)
+extern struct cpufreq_governor cpufreq_gov_sched;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_sched)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL)
+extern struct cpufreq_governor cpufreq_gov_schedutil;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_schedutil)
 #endif
+
+static inline void cpufreq_policy_apply_limits(struct cpufreq_policy *policy)
+{
+	if (policy->max < policy->cur)
+		__cpufreq_driver_target(policy, policy->max, CPUFREQ_RELATION_H);
+	else if (policy->min > policy->cur)
+		__cpufreq_driver_target(policy, policy->min, CPUFREQ_RELATION_L);
+}
+
+/* Governor attribute set */
+struct gov_attr_set {
+	struct kobject kobj;
+	struct list_head policy_list;
+	struct mutex update_lock;
+	int usage_count;
+};
+
+/* sysfs ops for cpufreq governors */
+extern const struct sysfs_ops governor_sysfs_ops;
+
+void gov_attr_set_init(struct gov_attr_set *attr_set, struct list_head *list_node);
+void gov_attr_set_get(struct gov_attr_set *attr_set, struct list_head *list_node);
+unsigned int gov_attr_set_put(struct gov_attr_set *attr_set, struct list_head *list_node);
+
+/* Governor sysfs attribute */
+struct governor_attr {
+	struct attribute attr;
+	ssize_t (*show)(struct gov_attr_set *attr_set, char *buf);
+	ssize_t (*store)(struct gov_attr_set *attr_set, const char *buf,
+			 size_t count);
+};
 
 /*********************************************************************
  *                     FREQUENCY TABLE HELPERS                       *
@@ -691,7 +670,6 @@ int cpufreq_boost_supported(void);
 int cpufreq_boost_enabled(void);
 int cpufreq_enable_boost_support(void);
 bool policy_has_boost_freq(struct cpufreq_policy *policy);
-void msm_do_pm_boost(bool do_boost);
 #else
 static inline int cpufreq_boost_trigger_state(int state)
 {
@@ -735,6 +713,26 @@ int cpufreq_generic_init(struct cpufreq_policy *policy,
  *                         CPUFREQ STATS                             *
  *********************************************************************/
 
+struct sched_domain;
+unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu);
+//unsigned long cpufreq_scale_max_freq_capacity(struct sched_domain *sd, int cpu);
+//unsigned long cpufreq_scale_min_freq_capacity(struct sched_domain *sd, int cpu);
+
+#ifdef CONFIG_CPU_FREQ_STAT
+
 void acct_update_power(struct task_struct *p, cputime_t cputime);
+void cpufreq_task_stats_init(struct task_struct *p);
+void cpufreq_task_stats_exit(struct task_struct *p);
+void cpufreq_task_stats_remove_uids(uid_t uid_start, uid_t uid_end);
+int  proc_time_in_state_show(struct seq_file *m, struct pid_namespace *ns,
+	struct pid *pid, struct task_struct *p);
+#else
+static inline void acct_update_power(struct task_struct *p,
+	cputime_t cputime) {}
+static inline void cpufreq_task_stats_init(struct task_struct *p) {}
+static inline void cpufreq_task_stats_exit(struct task_struct *p) {}
+static inline void cpufreq_task_stats_remove_uids(uid_t uid_start,
+	uid_t uid_end) {}
+#endif
 
 #endif /* _LINUX_CPUFREQ_H */
