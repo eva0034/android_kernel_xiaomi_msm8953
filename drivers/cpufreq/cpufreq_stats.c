@@ -114,6 +114,45 @@ static int cpufreq_stats_update(unsigned int cpu)
 	return 0;
 }
 
+void cpufreq_task_stats_init(struct task_struct *p)
+{
+	size_t alloc_size;
+	void *temp;
+	unsigned long flags;
+
+	spin_lock_irqsave(&task_time_in_state_lock, flags);
+	p->time_in_state = NULL;
+	spin_unlock_irqrestore(&task_time_in_state_lock, flags);
+	WRITE_ONCE(p->max_states, 0);
+
+	if (!all_freq_table || !cpufreq_all_freq_init)
+		return;
+
+	WRITE_ONCE(p->max_states, all_freq_table->table_size);
+
+	/* Create all_freq_table for clockticks in all possible freqs in all
+	 * cpus
+	 */
+	alloc_size = p->max_states * sizeof(p->time_in_state[0]);
+	temp = kzalloc(alloc_size, GFP_ATOMIC);
+
+	spin_lock_irqsave(&task_time_in_state_lock, flags);
+	p->time_in_state = temp;
+	spin_unlock_irqrestore(&task_time_in_state_lock, flags);
+}
+
+void cpufreq_task_stats_exit(struct task_struct *p)
+{
+	unsigned long flags;
+	void *temp;
+
+	spin_lock_irqsave(&task_time_in_state_lock, flags);
+	temp = p->time_in_state;
+	p->time_in_state = NULL;
+	spin_unlock_irqrestore(&task_time_in_state_lock, flags);
+	kfree(temp);
+}
+
 static ssize_t show_total_trans(struct cpufreq_policy *policy, char *buf)
 {
 	struct cpufreq_stats *stat = per_cpu(cpufreq_stats_table, policy->cpu);
