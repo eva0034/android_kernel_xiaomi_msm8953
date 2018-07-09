@@ -138,7 +138,7 @@ static struct pll_clk apcs_hf_pll = {
 		.test_ctl_lo_val = 0x1C000000,
 	},
 	.base = &virt_bases[APCS_C0_PLL_BASE],
-	.max_rate = 2649600000UL,
+	.max_rate = 2000000000UL,
 	.min_rate = 422400000UL,
 	.src_rate =  19200000UL,
 	.c = {
