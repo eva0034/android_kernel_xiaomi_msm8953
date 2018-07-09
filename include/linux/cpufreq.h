@@ -482,6 +482,9 @@ extern int __cpufreq_driver_getavg(struct cpufreq_policy *policy, unsigned int c
 int cpufreq_register_governor(struct cpufreq_governor *governor);
 void cpufreq_unregister_governor(struct cpufreq_governor *governor);
 
+int  proc_time_in_state_show(struct seq_file *m, struct pid_namespace *ns,
+struct pid *pid, struct task_struct *p);
+
 /* CPUFREQ DEFAULT GOVERNOR */
 /*
  * Performance governor is fallback governor if any other gov failed to auto
